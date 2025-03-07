@@ -5,7 +5,8 @@ import NextAuth from "next-auth";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 
 // Importar la promesa del cliente de MongoDB
-import clientPromise from "./libs/mongo";
+import clientPromise from "../libs/mongo";
+
 
 // Configuración de NextAuth
 const config = {
