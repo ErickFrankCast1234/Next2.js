@@ -1,19 +1,23 @@
 // auth.js
 
-// Importar NextAuth y el adaptador de MongoDB
+// Importar NextAuth, Resend provider y el adaptador de MongoDB
 import NextAuth from "next-auth";
+import Resend from "next-auth/providers/resend";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
-
-// Importar la promesa del cliente de MongoDB
 import clientPromise from "../libs/mongo";
 
-
-// Configuración de NextAuth
+// Configuración de NextAuth con el proveedor Resend y el adaptador MongoDB
 const config = {
-  providers: [],
+  providers: [
+    Resend({
+      apiKey: process.env.RESEND_KEY,
+      from: "noreply@castlesbuy.shop",
+      name: "Email",
+    }),
+  ],
   adapter: MongoDBAdapter(clientPromise),
+  secret: process.env.AUTH_SECRET,
 };
 
 // Exportar los controladores de autenticación
 export const { handlers, signIn, signOut, auth } = NextAuth(config);
-
