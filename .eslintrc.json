@@ -1,3 +1,11 @@
+// CONFIGURACIÓN DE ESLINT PARA MANEJO DE VARIABLES NO UTILIZADAS
+
 {
-  "extends": "next/core-web-vitals"
+  "extends": ["next/core-web-vitals", "eslint:recommended"],
+  // Establece las configuraciones base recomendadas por Next.js y ESLint
+
+  "rules": {
+      "no-unused-vars": "warn"
+      // Cambia la regla de variables no usadas para mostrar advertencias en lugar de errores
+  }
 }
