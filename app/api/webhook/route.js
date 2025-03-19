@@ -1,74 +1,54 @@
-// Archivo: route.js (Manejador de Webhooks de Stripe)
+import { NextResponse } from "next/server";
+import Stripe from "stripe";
+import connectMongo from "@/libs/mongoose";
+import User from "@/models/User";
 
-// Importamos las dependencias necesarias
-import { headers } from "next/headers"; // Para obtener las cabeceras de la solicitud
-import Stripe from "stripe"; // SDK de Stripe
-import connectMongo from "@/libs/mongoose"; // Conexión a la base de datos
-import User from "@/models/User"; // Modelo de usuario en MongoDB
-import { NextResponse } from "next/server"; // Para manejar respuestas HTTP en Next.js
-
-// Definimos la función asincrónica para manejar las solicitudes POST (webhooks)
 export async function POST(req) {
   try {
-    // Creamos una nueva instancia de Stripe con la clave de API
-    const stripe = new Stripe(process.env.STRIPE_API_KEY);
-
-    // Extraemos el cuerpo de la solicitud en texto plano
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const body = await req.text();
+    const signature = req.headers.get("stripe-signature");
 
-    // Extraemos la firma de la cabecera del webhook
-    const signature = headers().get("stripe-signature");
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+      console.error("🚨 Error verificando webhook:", err.message);
+      return NextResponse.json({ error: "Webhook verification failed" }, { status: 400 });
+    }
 
-    // Se obtiene el secreto del webhook desde las variables de entorno
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    console.log("📩 Evento recibido:", event.type);
 
-    // Verificamos y construimos el evento del webhook de Stripe
-    const event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const customerEmail = session.customer_email;
+      const customerId = session.customer; // 🔹 ID del cliente en Stripe
 
-    // Extraemos el tipo de evento y sus datos
-    const { data, type } = event;
+      console.log("✅ Sesión completada. Asignando Customer ID...");
+      console.log("📄 Datos de la sesión:", session);
 
-    await connectMongo(); // Conectamos a la base de datos MongoDB
+      if (!customerEmail || !customerId) {
+        console.error("❌ No se encontró email o customerId en la sesión.");
+        return NextResponse.json({ error: "Missing email or customerId" }, { status: 400 });
+      }
 
-    // ✅ **Cuando la suscripción se completa, damos acceso**
-    if (type === "checkout.session.completed") {
-      console.log("✅ Suscripción completada. Otorgando acceso...");
+      await connectMongo();
+      const user = await User.findOne({ email: customerEmail });
 
-      // Buscamos al usuario en la base de datos utilizando el ID de referencia de Stripe
-      const user = await User.findById(data.object.client_reference_id);
-
-      // Si el usuario existe, le otorgamos acceso al producto
       if (user) {
-        user.hasAccess = true; // Marcamos que el usuario tiene acceso
-        user.customerId = data.object.customer; // Guardamos el ID del cliente de Stripe
-        await user.save(); // Guardamos los cambios en la base de datos
-        console.log("✅ Acceso otorgado a:", user.email);
+        user.hasAccess = true; // 🟢 Se otorga acceso después del pago
+        user.customerId = customerId; // 🔹 Guardamos el customerId de Stripe
+        await user.save();
+
+        console.log(`✅ Usuario ${customerEmail} ahora tiene acceso y su customerId es ${customerId}`);
       } else {
-        console.error("❌ Usuario no encontrado en la base de datos.");
+        console.error(`❌ Usuario con email ${customerEmail} no encontrado en la base de datos.`);
       }
     }
 
-    // ❌ **Cuando la suscripción se cancela, revocamos acceso**
-    else if (type === "customer.subscription.deleted") {
-      console.log("❌ Suscripción cancelada. Revocando acceso...");
-
-      // Buscamos al usuario por el ID de cliente de Stripe
-      const user = await User.findOne({ customerId: data.object.customer });
-
-      // Si el usuario existe, le revocamos el acceso
-      if (user) {
-        user.hasAccess = false; // Revocamos acceso
-        await user.save(); // Guardamos los cambios
-        console.log("✅ Acceso revocado a:", user.email);
-      } else {
-        console.error("❌ No se encontró el usuario con ese Customer ID.");
-      }
-    }
-  } catch (e) {
-    // Capturamos y mostramos cualquier error en consola
-    console.error("Stripe error: " + e.message);
+    return NextResponse.json({ received: true }, { status: 200 });
+  } catch (err) {
+    console.error("❌ Error en el webhook:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  // Retornamos una respuesta vacía con código 200 para confirmar la recepción del webhook
-  return NextResponse.json({});
 }

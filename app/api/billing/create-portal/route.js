@@ -8,7 +8,7 @@ import Stripe from "stripe"; // Importamos Stripe para manejar pagos
 // Definimos una función asincrónica para manejar la petición POST
 export async function POST(req) {
   try {
-    console.log("🔹 Recibiendo solicitud POST en /api/billing/create-checkout");
+    console.log("🔹 Recibiendo solicitud POST en /api/billing/create-portal");
 
     // Extraemos el cuerpo de la solicitud
     const body = await req.json();
@@ -16,10 +16,10 @@ export async function POST(req) {
 
     // Verificamos que la URL de retorno esté presente en la solicitud
     if (!body.returnUrl) {
-      console.error("❌ Error: Falta returnUrl en la solicitud");
+      console.error("❌ Falta returnUrl en la solicitud");
       return NextResponse.json(
-        { error: "Return URL is required" }, // Mensaje de error si falta la URL
-        { status: 400 } // Código de estado HTTP 400 (solicitud incorrecta)
+        { error: "Return URL is required" },
+        { status: 400 }
       );
     }
 
@@ -67,7 +67,7 @@ export async function POST(req) {
       );
     }
 
-    // Validamos si el usuario tiene un customerId asociado en Stripe
+    // ✅ Validamos que el usuario tenga un `customerId` en Stripe
     if (!user.customerId) {
       console.error("❌ Error: El usuario no tiene un customerId en Stripe");
       return NextResponse.json(
@@ -76,10 +76,19 @@ export async function POST(req) {
       );
     }
 
-    // Creamos una nueva instancia de Stripe con la clave de API
+    // ✅ Validamos que `STRIPE_SECRET_KEY` esté configurado
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error("❌ Error: STRIPE_SECRET_KEY no está configurado");
+      return NextResponse.json(
+        { error: "Stripe secret key missing" },
+        { status: 500 }
+      );
+    }
+
+    // ✅ Inicializamos Stripe con la clave secreta
     let stripe;
     try {
-      stripe = new Stripe(process.env.STRIPE_API_KEY);
+      stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
       console.log("✅ Instancia de Stripe creada");
     } catch (error) {
       console.error("❌ Error creando instancia de Stripe:", error);
@@ -89,7 +98,7 @@ export async function POST(req) {
       );
     }
 
-    // Creamos una sesión del portal de facturación en Stripe
+    // ✅ Creamos una sesión del portal de facturación en Stripe
     try {
       const stripeCustomerPortal = await stripe.billingPortal.sessions.create({
         customer: user.customerId, // Identificador del cliente en Stripe
@@ -100,13 +109,19 @@ export async function POST(req) {
 
       // Retornamos la URL generada por Stripe para que el usuario gestione su suscripción
       return NextResponse.json({ url: stripeCustomerPortal.url });
+
     } catch (error) {
-      console.error("❌ Error creando sesión de facturación en Stripe:", error);
+      console.error("❌ Error creando sesión de facturación en Stripe:", error.raw || error);
+
       return NextResponse.json(
-        { error: "Failed to create Stripe billing session" },
+        { 
+          error: "Failed to create Stripe billing session", 
+          stripeError: error.raw || error 
+        },
         { status: 500 }
       );
     }
+
   } catch (e) {
     // Capturamos errores generales y devolvemos una respuesta con código 500
     console.error("❌ Error inesperado en la API:", e);
