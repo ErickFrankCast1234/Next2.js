@@ -1,15 +1,13 @@
-// Importar NextAuth, Resend provider y el adaptador de MongoDB
+// 📦 Importaciones necesarias
 import NextAuth from "next-auth";
 import Resend from "next-auth/providers/resend";
+import Google from "next-auth/providers/google";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import clientPromise from "../libs/mongo";
+import connectMongo from "@/libs/mongoose";
+import User from "@/models/User";
 
-// Importamos el proveedor de autenticación con Google
-import Google from "next-auth/providers/google";
-import connectMongo from "@/libs/mongoose"; // Conexión a MongoDB
-import User from "@/models/User"; // Modelo de usuario
-
-// Configuración de NextAuth con el proveedor Resend y el adaptador MongoDB
+// ⚙️ Configuración de NextAuth
 const config = {
   providers: [
     Resend({
@@ -18,40 +16,49 @@ const config = {
       name: "Email",
     }),
     Google({
-      clientId: process.env.GOOGLE_ID, // Clave del cliente de Google
-      clientSecret: process.env.GOOGLE_SECRET, // Secreto del cliente de Google
+      clientId: process.env.GOOGLE_ID,
+      clientSecret: process.env.GOOGLE_SECRET,
     }),
   ],
+
   adapter: MongoDBAdapter(clientPromise),
   secret: process.env.AUTH_SECRET,
 
-  // 🔄 Callback para modificar los datos de la sesión antes de enviarlos al frontend
+  // ✅ Para evitar conflicto entre proveedores con el mismo correo
+  allowDangerousEmailAccountLinking: true,
+
+  // 🔄 Callbacks
   callbacks: {
     async session({ session, user }) {
-      if (user) {
-        session.user.emailVerified = user.emailVerified || null; // Asegura que el campo esté presente
+      if (session?.user) {
+        session.user.emailVerified = user?.emailVerified || null;
       }
       return session;
     },
-  },
 
-  // 🔥 Evento para actualizar el usuario cuando inicia sesión
-  events: {
     async signIn({ user }) {
-      if (user) {
+      try {
         await connectMongo();
-        const existingUser = await User.findOne({ email: user.email });
 
-        if (existingUser && !existingUser.emailVerified) {
-          existingUser.emailVerified = new Date(); // ✅ Marca el correo como verificado
-          await existingUser.save();
+        const dbUser = await User.findOne({ email: user.email });
+
+        // Si existe pero aún no está marcado como verificado
+        if (dbUser && !dbUser.emailVerified) {
+          dbUser.emailVerified = new Date();
+          await dbUser.save();
           console.log(`✅ Correo verificado para: ${user.email}`);
         }
+
+        return true; // Permitir login
+      } catch (error) {
+        console.error("❌ Error en signIn callback:", error.message);
+        return false;
       }
     },
   },
 };
 
-// Exportar los controladores de autenticación
+// 🚀 Exportar controladores
 export const { handlers, signIn, signOut, auth } = NextAuth(config);
+
 
